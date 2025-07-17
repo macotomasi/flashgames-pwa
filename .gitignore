@@ -1,6 +1,7 @@
-node_modules/
-dossier_code.txt
+*.log.DS_Store
+.DS_Store
 build/
-dist/
 coverage/
-*.log
+dist/
+dossier_code.txt
+node_modules/
