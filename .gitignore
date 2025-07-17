@@ -1,0 +1,6 @@
+node_modules/
+dossier_code.txt
+build/
+dist/
+coverage/
+*.log

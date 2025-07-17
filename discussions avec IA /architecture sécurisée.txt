@@ -1,0 +1,918 @@
+# 🛡️ Architecture Sécurisée Progressive FlashGames PWA
+
+## 📊 Approche Pragmatique de la Sécurité
+
+Une sécurité **modulaire et progressive** adaptée aux besoins réels d'une application éducative gamifiée, sans sur-ingénierie.
+
+---
+
+## 🎯 Phase 1 : MVP Sécurisé (Semaines 1-8)
+
+### **1. Authentification Simple & Flexible**
+
+```typescript
+// auth-mvp.service.ts
+interface AuthStrategy {
+  type: 'guest' | 'email' | 'social'
+  persistence: 'session' | 'local'
+}
+
+class SimplifiedAuthService {
+  // Mode invité pour accès rapide
+  async continueAsGuest(): Promise<GuestSession> {
+    const guestId = `guest_${crypto.randomUUID()}`
+    const session = {
+      id: guestId,
+      type: 'guest' as const,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 jours
+    }
+    
+    // Stockage simple, pas de chiffrement pour les invités
+    localStorage.setItem('guestSession', JSON.stringify(session))
+    return session
+  }
+  
+  // Auth sociale simplifiée avec Auth0
+  async loginWithSocial(provider: 'google' | 'apple'): Promise<UserSession> {
+    const auth0Result = await this.auth0.loginWithPopup({
+      connection: provider,
+      scope: 'openid profile email'
+    })
+    
+    // JWT dans la mémoire, pas dans localStorage
+    return {
+      user: auth0Result.user,
+      token: auth0Result.idToken,
+      expiresAt: auth0Result.expiresIn * 1000 + Date.now()
+    }
+  }
+  
+  // Conversion invité → compte
+  async upgradeGuestAccount(guestId: string, authData: AuthData): Promise<void> {
+    const guestData = await this.getGuestData(guestId)
+    await this.mergeWithAccount(authData.userId, guestData)
+  }
+}
+```
+
+### **2. Stockage Pragmatique avec Gestion des Clés**
+
+```typescript
+// key-management-mvp.service.ts
+class SimpleKeyService {
+  private readonly SALT_KEY = 'flashgames_salt_v1'
+  
+  // Dérivation de clé renforcée
+  async deriveUserKey(userId: string, deviceId?: string): Promise<CryptoKey> {
+    const salt = await this.getOrCreateSalt()
+    const keyMaterial = `${userId}:${deviceId || 'default'}:${salt}`
+    
+    // SHA-256 avant PBKDF2 pour meilleure entropie
+    const encoder = new TextEncoder()
+    const preDigest = await crypto.subtle.digest(
+      'SHA-256', 
+      encoder.encode(keyMaterial)
+    )
+    
+    const baseKey = await crypto.subtle.importKey(
+      'raw',
+      preDigest,
+      'PBKDF2',
+      false,
+      ['deriveKey']
+    )
+    
+    return crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: encoder.encode(salt),
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    )
+  }
+  
+  private async getOrCreateSalt(): Promise<string> {
+    let salt = localStorage.getItem(this.SALT_KEY)
+    if (!salt) {
+      salt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+      localStorage.setItem(this.SALT_KEY, salt)
+    }
+    return salt
+  }
+}
+
+// storage-mvp.service.ts
+class PragmaticStorage {
+  private keyService = new SimpleKeyService()
+  private syncQueue: SyncQueueItem[] = []
+  
+  // Résolution de conflits simple
+  async saveWithConflictResolution(key: string, data: any): Promise<void> {
+    const versionedData = {
+      ...data,
+      _version: Date.now(),
+      _deviceId: await this.getDeviceId()
+    }
+    
+    try {
+      // Tentative IndexedDB
+      await this.db.put(key, versionedData)
+    } catch (e) {
+      // Fallback avec gestion de version
+      const existing = localStorage.getItem(key)
+      if (existing) {
+        const existingData = JSON.parse(existing)
+        // Résolution : priorité au plus récent
+        if (existingData._version > versionedData._version) {
+          console.warn('Conflict detected, keeping newer version')
+          return
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(versionedData))
+    }
+    
+    // Ajouter à la queue de sync
+    this.syncQueue.push({
+      key,
+      data: versionedData,
+      operation: 'update',
+      timestamp: Date.now()
+    })
+  }
+  
+  // Journal de synchronisation
+  async flushSyncQueue(): Promise<SyncResult> {
+    if (this.syncQueue.length === 0) return { synced: 0 }
+    
+    const batch = [...this.syncQueue]
+    this.syncQueue = []
+    
+    try {
+      const result = await api.syncBatch(batch)
+      return result
+    } catch (error) {
+      // Remettre en queue si échec
+      this.syncQueue.unshift(...batch)
+      throw error
+    }
+  }
+}
+```
+
+### **3. Sécurité API Essentielle avec Validation Stricte**
+
+```typescript
+// api-security-mvp.ts
+import { z } from 'zod' // ou joi/yup selon préférence
+
+// Schémas de validation centralisés
+const schemas = {
+  score: z.object({
+    value: z.number().min(0).max(1000000),
+    gameType: z.enum(['tetris', 'pacman', 'space-invaders', 'pong']),
+    duration: z.number().min(10), // Minimum 10 secondes
+    sessionToken: z.string(), // Token de session de jeu
+    actions: z.array(z.object({
+      type: z.string(),
+      timestamp: z.number()
+    })).optional()
+  }),
+  
+  flashcard: z.object({
+    front: z.string().min(1).max(500),
+    back: z.string().min(1).max(1000),
+    deckId: z.string().uuid()
+  })
+}
+
+class MVPSecurityMiddleware {
+  // JWT dans les headers uniquement (pas de CSRF nécessaire)
+  authenticateJWT = (req: Request, res: Response, next: NextFunction) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' })
+    }
+    
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+      req.user = decoded
+      next()
+    } catch (error) {
+      return res.status(403).json({ error: 'Invalid token' })
+    }
+  }
+  
+  // Rate limiting simple avec express-rate-limit
+  basicRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    message: 'Too many requests'
+  })
+  
+  // Validation stricte sur TOUTES les routes
+  validateInput = (schemaName: keyof typeof schemas) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+      const schema = schemas[schemaName]
+      const result = schema.safeParse(req.body)
+      
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: 'Validation failed',
+          details: result.error.flatten()
+        })
+      }
+      
+      req.body = result.data // Données nettoyées
+      next()
+    }
+  }
+  
+  // Validation automatique des query params
+  validateQuery = (schema: z.ZodSchema) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+      const result = schema.safeParse(req.query)
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: 'Invalid query parameters',
+          details: result.error.flatten()
+        })
+      }
+      req.query = result.data
+      next()
+    }
+  }
+}
+
+// Routes avec validation obligatoire
+app.post('/api/scores', 
+  authenticate,
+  validateInput('score'),
+  async (req, res) => {
+    // req.body est maintenant typé et validé
+    const { sessionToken, ...scoreData } = req.body
+    
+    // Vérifier le token de session
+    const isValidSession = await verifyGameSession(sessionToken)
+    if (!isValidSession) {
+      return res.status(400).json({ error: 'Invalid game session' })
+    }
+    
+    await saveScore(req.user.id, scoreData)
+    res.json({ success: true })
+  }
+)
+
+// Headers de sécurité essentiels
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Pour React
+      styleSrc: ["'self'", "'unsafe-inline'"],  // Pour Tailwind
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", process.env.API_URL]
+    }
+  }
+}))
+```
+
+### **4. Anti-Triche Offline-First avec Token de Session**
+
+```typescript
+// game-session.service.ts
+class GameSessionService {
+  private usedSessions = new Set<string>() // Blacklist temporaire
+  
+  // Génération de token au début de chaque partie
+  async createGameSession(userId: string, gameType: GameType): Promise<GameSession> {
+    const sessionId = crypto.randomUUID()
+    const timestamp = Date.now()
+    const nonce = crypto.randomUUID() // Nonce unique
+    
+    // Token signé côté serveur avec nonce
+    const sessionToken = jwt.sign(
+      {
+        sessionId,
+        userId,
+        gameType,
+        startTime: timestamp,
+        nonce, // Ajout du nonce
+        exp: Math.floor(timestamp / 1000) + 3600 // 1h max
+      },
+      process.env.GAME_SESSION_SECRET
+    )
+    
+    // Stocker la session pour validation ultérieure
+    await this.storeSession({
+      sessionId,
+      userId,
+      gameType,
+      startTime: timestamp,
+      nonce,
+      token: sessionToken
+    })
+    
+    return { sessionId, token: sessionToken }
+  }
+  
+  // Validation du token avec invalidation après usage
+  async validateScoreSubmission(
+    sessionToken: string, 
+    scoreData: ScoreSubmission
+  ): Promise<boolean> {
+    try {
+      const decoded = jwt.verify(sessionToken, process.env.GAME_SESSION_SECRET) as any
+      
+      // Vérifier si déjà utilisé
+      if (this.usedSessions.has(decoded.sessionId)) {
+        console.warn('Session token already used:', decoded.sessionId)
+        return false
+      }
+      
+      // Vérifications de cohérence
+      if (decoded.gameType !== scoreData.gameType) return false
+      if (scoreData.duration < 10) return false // Minimum 10s
+      
+      const sessionDuration = Date.now() - decoded.startTime
+      if (Math.abs(sessionDuration - scoreData.duration * 1000) > 5000) {
+        // Écart de plus de 5s entre durée client et serveur
+        return false
+      }
+      
+      // Marquer comme utilisé
+      this.usedSessions.add(decoded.sessionId)
+      
+      // Nettoyer après 24h
+      setTimeout(() => {
+        this.usedSessions.delete(decoded.sessionId)
+      }, 24 * 60 * 60 * 1000)
+      
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+// anti-cheat-mvp.service.ts
+class OfflineFirstAntiCheat {
+  private sessionService = new GameSessionService()
+  private eventBuffer: ClientEvent[] = []
+  
+  // Début de partie avec token et distinction online/offline
+  async startGame(gameType: GameType): Promise<GameStartResult> {
+    try {
+      // Online : obtenir un token du serveur
+      const session = await this.sessionService.createGameSession(
+        this.getCurrentUserId(),
+        gameType
+      )
+      return { 
+        token: session.token,
+        origin: 'online' as const
+      }
+    } catch {
+      // Offline : token local temporaire
+      const offlineToken = this.generateOfflineToken(gameType)
+      return {
+        token: offlineToken,
+        origin: 'offline' as const
+      }
+    }
+  }
+  
+  // Validation locale des scores avec origine
+  validateScore(gameState: GameState, score: number, origin: 'online' | 'offline'): boolean {
+    // Règles de cohérence basiques
+    const maxPossibleScore = this.calculateMaxPossible(gameState)
+    const minReasonableTime = this.getMinGameTime(gameState.gameType)
+    
+    // Limites plus strictes pour les scores offline
+    if (origin === 'offline') {
+      const offlineMaxScore = maxPossibleScore * 0.8 // 80% du max pour offline
+      return score <= offlineMaxScore && 
+             gameState.duration >= minReasonableTime * 1.5 // 50% plus de temps minimum
+    }
+    
+    return score <= maxPossibleScore && 
+           gameState.duration >= minReasonableTime
+  }
+  
+  // Journal d'événements suspects avec redaction PII
+  logSuspiciousEvent(event: SuspiciousEvent): void {
+    const anonymizedEvent = {
+      type: event.type,
+      severity: event.severity,
+      timestamp: Date.now(),
+      sessionId: this.getAnonymousSessionId(),
+      details: this.redactPII(event.details) // Redaction automatique
+    }
+    
+    // Buffer local limité
+    this.eventBuffer.push(anonymizedEvent)
+    if (this.eventBuffer.length > 50) {
+      this.eventBuffer.shift() // FIFO
+    }
+    
+    // Sync différée
+    if (navigator.onLine && this.eventBuffer.length >= 10) {
+      this.flushEvents()
+    }
+  }
+  
+  // Redaction des PII dans les logs
+  private redactPII(data: any): any {
+    const piiPatterns = {
+      email: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+      phone: /[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{4,6}/g,
+      creditCard: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g
+    }
+    
+    let sanitized = JSON.stringify(data)
+    Object.entries(piiPatterns).forEach(([type, pattern]) => {
+      sanitized = sanitized.replace(pattern, `[REDACTED_${type.toUpperCase()}]`)
+    })
+    
+    return JSON.parse(sanitized)
+  }
+  
+  // Audit périodique avec quotas offline
+  async syncAndAudit(userId: string): Promise<AuditResult> {
+    const localScores = await this.getLocalScores(userId)
+    const offlineScores = localScores.filter(s => s.origin === 'offline')
+    const anomalies = []
+    
+    // Quota de scores offline
+    if (offlineScores.length > 100) {
+      console.warn(`User ${userId} has ${offlineScores.length} offline scores - triggering audit`)
+      anomalies.push({
+        type: 'excessive_offline_scores',
+        count: offlineScores.length
+      })
+    }
+    
+    for (const score of localScores) {
+      if (this.isAnomalous(score)) {
+        anomalies.push(score)
+        this.logSuspiciousEvent({
+          type: 'score_anomaly',
+          severity: score.origin === 'offline' ? 'high' : 'medium',
+          details: { 
+            score: score.value, 
+            duration: score.duration,
+            origin: score.origin
+          }
+        })
+      }
+    }
+    
+    // Envoi au serveur pour validation différée
+    if (anomalies.length > 0) {
+      await this.reportAnomalies(userId, anomalies)
+    }
+    
+    return { 
+      synced: localScores.length, 
+      anomalies: anomalies.length,
+      events: this.eventBuffer.length,
+      offlineCount: offlineScores.length
+    }
+  }
+  
+  // Patterns suspects simples
+  private isAnomalous(score: ScoreEntry): boolean {
+    // Détection basique : scores impossibles, temps trop courts
+    return score.value > 1000000 || 
+           score.gameTime < 10 || 
+           score.actionsPerMinute > 600
+  }
+  
+  private async flushEvents(): Promise<void> {
+    if (this.eventBuffer.length === 0) return
+    
+    try {
+      await api.reportEvents(this.eventBuffer)
+      this.eventBuffer = []
+    } catch (error) {
+      console.error('Failed to flush events:', error)
+    }
+  }
+}
+```
+
+---
+
+## 🚀 Phase 2 : Sécurité Renforcée (Mois 3-4)
+
+### **1. Chiffrement Sélectif et Segmentation des Données**
+
+```typescript
+// crypto-phase2.service.ts
+class SelectiveCrypto {
+  private keyService = new SimpleKeyService()
+  
+  // Convention : PII jamais en clair
+  private piiGuard = new Proxy({}, {
+    set: (target, prop, value) => {
+      throw new Error('PII must be encrypted before storage')
+    }
+  })
+  
+  // Segmentation PII vs contenu pédagogique
+  async encryptPII(userId: string, data: PersonalData): Promise<EncryptedData> {
+    // Force l'utilisation du proxy en dev
+    if (process.env.NODE_ENV === 'development') {
+      Object.setPrototypeOf(data, this.piiGuard)
+    }
+    
+    const deviceId = await this.getDeviceId()
+    const key = await this.keyService.deriveUserKey(userId, deviceId)
+    
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      new TextEncoder().encode(JSON.stringify(data))
+    )
+    
+    return {
+      ciphertext: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+      iv: btoa(String.fromCharCode(...iv)),
+      type: 'PII'
+    }
+  }
+  
+  // Pas de chiffrement pour le contenu public
+  async storeEducationalContent(content: EducationalContent): Promise<void> {
+    await this.db.content.add({
+      ...content,
+      type: 'PUBLIC',
+      checksum: this.calculateChecksum(content)
+    })
+  }
+  
+  // Export explicite par l'utilisateur
+  async exportUserData(userId: string): Promise<ExportPackage> {
+    const piiData = await this.getUserPII(userId)
+    const scores = await this.getUserScores(userId)
+    const flashcards = await this.getUserFlashcards(userId)
+    
+    return {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      data: {
+        personal: piiData,
+        learning: { scores, flashcards }
+      },
+      checksum: await this.generateExportChecksum({ piiData, scores, flashcards })
+    }
+  }
+}
+
+// data-segregation.service.ts
+class DataSegregationService {
+  // Tables séparées pour faciliter GDPR
+  private piiTable = 'user_pii'
+  private learningTable = 'user_learning'
+  private publicTable = 'public_content'
+  
+  async deleteUserData(userId: string): Promise<void> {
+    // Suppression PII immédiate
+    await this.db.table(this.piiTable).where('userId').equals(userId).delete()
+    
+    // Anonymisation des données d'apprentissage
+    await this.db.table(this.learningTable)
+      .where('userId').equals(userId)
+      .modify(record => {
+        record.userId = `deleted_${crypto.randomUUID()}`
+        record.anonymized = true
+      })
+  }
+}
+```
+
+### **2. Monitoring Léger**
+
+```typescript
+// monitoring-phase2.service.ts
+class LightweightMonitoring {
+  // Métriques anonymisées
+  async trackUserBehavior(event: GameEvent): Promise<void> {
+    const anonymizedEvent = {
+      type: event.type,
+      timestamp: Date.now(),
+      sessionId: this.getAnonymousSessionId(), // Pas l'ID Auth0
+      metadata: this.sanitizeMetadata(event.metadata)
+    }
+    
+    // Buffer local avant envoi
+    this.eventBuffer.push(anonymizedEvent)
+    
+    if (this.eventBuffer.length >= 50) {
+      await this.flushEvents()
+    }
+  }
+  
+  // Détection d'anomalies simple
+  detectSimpleAnomalies(userId: string): string[] {
+    const warnings = []
+    const recentActivity = this.getRecentActivity(userId)
+    
+    // Règles simples sans ML
+    if (recentActivity.sessionsPerDay > 20) {
+      warnings.push('Unusual session frequency')
+    }
+    
+    if (recentActivity.avgScoreJump > 500) {
+      warnings.push('Sudden score improvement')
+    }
+    
+    return warnings
+  }
+}
+```
+
+---
+
+## 💎 Phase 3 : Sécurité Avancée (Mois 6+)
+
+### **1. Anti-Triche Serveur**
+
+```typescript
+// anti-cheat-phase3.service.ts
+class ServerSideAntiCheat {
+  // Validation différée des high scores
+  async validateHighScore(scoreData: HighScore): Promise<ValidationResult> {
+    // Replay simulation légère
+    const simulationResult = await this.lightweightReplay(scoreData.gameLog)
+    
+    // Comparaison statistique avec les autres joueurs
+    const percentile = await this.calculatePercentile(scoreData)
+    
+    // Flag seulement les cas extrêmes
+    if (percentile > 99.9 && !simulationResult.valid) {
+      return { valid: false, reason: 'Statistical anomaly' }
+    }
+    
+    return { valid: true }
+  }
+}
+```
+
+### **2. Protection des Données Comportementales**
+
+```typescript
+// privacy-phase3.service.ts
+class PrivacyCompliantAnalytics {
+  // Consentement granulaire
+  async requestAnalyticsConsent(): Promise<ConsentResult> {
+    return {
+      essential: true, // Toujours autorisé
+      performance: await this.askConsent('performance'),
+      behavioral: await this.askConsent('behavioral')
+    }
+  }
+  
+  // Pseudonymisation
+  generatePseudonymousId(userId: string): string {
+    // ID opaque non réversible
+    const salt = process.env.ANALYTICS_SALT
+    return crypto.createHash('sha256')
+      .update(userId + salt + new Date().toISOString().split('T')[0])
+      .digest('hex')
+      .substring(0, 16)
+  }
+}
+```
+
+---
+
+## 📋 Checklist de Sécurité Progressive
+
+### **MVP (Obligatoire)**
+```yaml
+security_mvp:
+  - [x] HTTPS partout
+  - [x] Auth0 basique (social + invité)
+  - [x] JWT dans headers (pas localStorage)
+  - [x] Rate limiting simple
+  - [x] Validation des inputs
+  - [x] Headers de sécurité (Helmet)
+  - [x] Checksum pour l'intégrité
+```
+
+### **Phase 2 (Recommandé)**
+```yaml
+security_phase2:
+  - [ ] Chiffrement des données privées uniquement
+  - [ ] Monitoring anonymisé
+  - [ ] Anti-triche offline avec sync
+  - [ ] Backup/restore sécurisé
+  - [ ] Audit de sécurité basique
+```
+
+### **Phase 3 (Optimisation)**
+```yaml
+security_phase3:
+  - [ ] Validation serveur des high scores
+  - [ ] ML pour détection d'anomalies
+  - [ ] Conformité GDPR complète
+  - [ ] Pen testing professionnel
+  - [ ] SOC 2 si B2B
+```
+
+---
+
+## 🎯 Architecture Simplifiée
+
+```
+┌─────────────────────────────────────────────┐
+│                   CLIENT                     │
+├─────────────────────────────────────────────┤
+│  • Mode invité sans friction                │
+│  • Auth sociale optionnelle                 │
+│  • Stockage hybride (IndexedDB + fallback) │
+│  • Validation locale des scores             │
+│  • Sync différée offline-first             │
+└─────────────────────────────────────────────┘
+                      ↓
+                   HTTPS
+                      ↓
+┌─────────────────────────────────────────────┐
+│                    API                       │
+├─────────────────────────────────────────────┤
+│  • JWT validation (pas de CSRF)            │
+│  • Rate limiting basique                    │
+│  • Validation des inputs                    │
+│  • Audit périodique (pas temps réel)       │
+└─────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────┐
+│                 STOCKAGE                     │
+├─────────────────────────────────────────────┤
+│  • PostgreSQL (données utilisateur)         │
+│  • Redis (cache + rate limit)              │
+│  • Chiffrement sélectif côté serveur       │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## 💡 Principes Clés Renforcés
+
+1. **Sécurité appropriée** : Pas de sur-ingénierie pour une app éducative
+2. **Progressive enhancement** : Commencer simple, évoluer selon les besoins
+3. **Offline-first** : PWA doit fonctionner sans connexion permanente
+4. **Privacy by design** : Données anonymisées et segmentées dès le départ
+5. **User-friendly** : La sécurité ne doit pas nuire à l'expérience
+6. **Transparence** : Export explicite des données par l'utilisateur
+
+## 🧪 Mode Développement et Tests
+
+### **Environnement de Test Anti-Triche**
+
+```typescript
+// dev-sandbox.service.ts
+class DevSandboxService {
+  // Génération de triches pour tests
+  async generateTestCheats(): Promise<CheatScenario[]> {
+    return [
+      {
+        name: 'score_injection',
+        action: () => this.injectHighScore(9999999),
+        expectedDetection: true
+      },
+      {
+        name: 'time_manipulation',
+        action: () => this.manipulateGameTime(-5000),
+        expectedDetection: true
+      },
+      {
+        name: 'rapid_actions',
+        action: () => this.simulateRapidClicks(1000),
+        expectedDetection: true
+      }
+    ]
+  }
+  
+  // Mode sandbox pour tests
+  enableSandboxMode(): void {
+    window.__SANDBOX_MODE__ = true
+    console.warn('🧪 Sandbox mode enabled - cheats will not be reported')
+  }
+  
+  // Validation des détections
+  async runAntiCheatTests(): Promise<TestResults> {
+    const scenarios = await this.generateTestCheats()
+    const results = []
+    
+    for (const scenario of scenarios) {
+      this.enableSandboxMode()
+      await scenario.action()
+      
+      const detected = await this.checkIfDetected(scenario.name)
+      results.push({
+        scenario: scenario.name,
+        detected,
+        passed: detected === scenario.expectedDetection
+      })
+    }
+    
+    return { results, passRate: this.calculatePassRate(results) }
+  }
+}
+```
+
+## 📋 Configuration Modulaire
+
+```typescript
+// security.config.ts
+interface SecurityConfig {
+  phases: {
+    mvp: {
+      auth: {
+        providers: ['guest', 'social'],
+        mfa: false,
+        sessionDuration: 30 * 24 * 60 * 60 * 1000 // 30 jours
+      },
+      encryption: {
+        enabled: false,
+        scope: ['tokens', 'sessions']
+      },
+      antiCheat: {
+        clientValidation: true,
+        serverValidation: false,
+        sessionTokens: true
+      },
+      monitoring: {
+        enabled: false,
+        anonymousEvents: true,
+        bufferSize: 50
+      }
+    },
+    
+    phase2: {
+      auth: {
+        providers: ['guest', 'social', 'email'],
+        mfa: 'optional',
+        biometric: true
+      },
+      encryption: {
+        enabled: true,
+        scope: ['pii', 'private_notes', 'payment_tokens'],
+        keyRotation: 30 // jours
+      },
+      antiCheat: {
+        clientValidation: true,
+        serverValidation: true,
+        anomalyDetection: 'simple',
+        replayValidation: false
+      },
+      monitoring: {
+        enabled: true,
+        eventTypes: ['security', 'performance', 'errors'],
+        gdprCompliant: true
+      }
+    },
+    
+    phase3: {
+      auth: {
+        providers: ['all'],
+        mfa: 'recommended',
+        passwordless: true,
+        sso: true
+      },
+      encryption: {
+        enabled: true,
+        scope: 'all_sensitive',
+        keyRotation: 7,
+        quantumSafe: false // Future
+      },
+      antiCheat: {
+        clientValidation: true,
+        serverValidation: true,
+        anomalyDetection: 'ml_based',
+        replayValidation: true,
+        behavioralAnalysis: true
+      },
+      monitoring: {
+        enabled: true,
+        siem: true,
+        realTimeAlerts: true,
+        complianceReports: true
+      }
+    }
+  }
+}
+
+// Activation progressive
+const currentPhase = process.env.SECURITY_PHASE || 'mvp'
+const securityConfig = new SecurityConfig().phases[currentPhase]
+```
