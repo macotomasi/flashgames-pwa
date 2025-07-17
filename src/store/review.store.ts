@@ -20,9 +20,10 @@ interface ReviewStore {
   loadNextCard: () => Promise<void>
   setUserChoice: (choice: 'know' | 'dontknow') => void
   submitAnswer: (wasCorrect: boolean) => Promise<void>
-  showAnswer: () => void
+  showAnswerAction: () => void
   endSession: () => void
-  getCardsForGame: () => Promise<Card[]>
+  getCardsForGame: (forFun?: boolean) => Promise<Card[]>
+  submitGameAnswer: (card: Card, wasCorrect: boolean, userChoice: 'know' | 'dontknow') => Promise<void>
 }
 
 export const useReviewStore = create<ReviewStore>((set, get) => ({
@@ -178,7 +179,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   },
   
   // Show answer
-  showAnswer: () => {
+  showAnswerAction: () => {
     set({ showAnswer: true })
   },
   

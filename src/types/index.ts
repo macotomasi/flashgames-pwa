@@ -72,6 +72,8 @@ export enum ReviewMode {
   SELECTED_DECKS = 'selected'
 }
 
+export type ReviewModeType = 'single' | 'all' | 'selected'
+
 export interface ReviewSession {
   mode: ReviewMode
   deckIds: string[]
@@ -123,3 +125,6 @@ export interface Achievement {
   icon: string
   unlockedAt: Date
 }
+
+// Re-export progression types
+export * from './progression'

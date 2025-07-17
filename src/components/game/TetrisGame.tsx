@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TetrisGame } from '@/modules/games/tetris/TetrisGame'
 import { BOARD_WIDTH, BOARD_HEIGHT, TICK_SPEED, TETROMINOS, TetrominoType } from '@/modules/games/tetris/constants'
-import { useGameStore, useDeckStore, useCardStore, useReviewStore } from '@/store'
+import { useGameStore, useDeckStore, useCardStore, useReviewStore, useProgressionStore } from '@/store'
 import { Card } from '@/types'
+import { MEMORY_LEVELS, DAILY_REWARDS } from '@/types/progression'
 import FlashcardModal from '@/components/flashcard/FlashcardModal'
 import UpToDateModal from '@/components/game/UpToDateModal'
+import ProgressionNotification from '@/components/progression/ProgressionNotification'
+import { useProgressionNotifications } from '@/hooks/useProgressionNotifications'
+import { soundManager } from '@/utils/sounds'
 
 export default function TetrisGameComponent() {
   const navigate = useNavigate()
@@ -15,6 +19,8 @@ export default function TetrisGameComponent() {
   const [nextPieceType, setNextPieceType] = useState<TetrominoType>('T')
   const [showUpToDate, setShowUpToDate] = useState(false)
   const [isForFun, setIsForFun] = useState(false)
+  const [bossCard, setBossCard] = useState<Card | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const intervalRef = useRef<number>()
   const gameRef = useRef(game)
   const pieceCountRef = useRef(0)
@@ -34,7 +40,26 @@ export default function TetrisGameComponent() {
   } = useGameStore()
 
   const { selectedDeckId, reviewMode } = useDeckStore()
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { getCardsFromDeck } = useCardStore()
+  const {
+    userProgress,
+    bossCardSession,
+    checkAndResetDaily,
+    updateMemoryLevel,
+    updateStreak,
+    updateBestScore,
+    incrementConsecutiveCorrect,
+    resetConsecutiveCorrect,
+    checkForBossCard,
+    setBossCard: setBossCardId,
+    clearBossCard,
+    getCardsForBoss,
+    addNewCardToday
+  } = useProgressionStore()
+
+  // Progression notifications
+  const { notifications, removeNotification } = useProgressionNotifications()
 
   // Re-render helper
   const updateDisplay = () => forceUpdate({})
@@ -47,7 +72,12 @@ export default function TetrisGameComponent() {
 
   // Initialize game session and load cards
   useEffect(() => {
-    startGame('tetris')
+    // Initialize progression system
+    checkAndResetDaily()
+    updateStreak()
+    updateMemoryLevel()
+    
+    startGame('tetris' as any)
     loadCards(isForFun)
 
     // Set initial next piece
@@ -56,10 +86,11 @@ export default function TetrisGameComponent() {
     nextPieceRef.current = initialNext
 
     // Override spawnPiece to use predetermined next piece
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const originalSpawnPiece = game.spawnPiece.bind(game)
     const originalClearLines = game.clearLines.bind(game)
 
-    game.spawnPiece = function() {
+    game.spawnPiece = async function() {
       // Use the predetermined next piece
       const type = nextPieceRef.current
       const tetromino = TETROMINOS[type]
@@ -89,14 +120,31 @@ export default function TetrisGameComponent() {
       if (
         pieceCountRef.current >= nextThresholdRef.current &&
         cardsRef.current.length > 0 &&
-        !gameRef.current.flashcardVisible
+        !flashcardVisible
       ) {
-        const randomCard = cardsRef.current[Math.floor(Math.random() * cardsRef.current.length)]
-        console.log('Showing flashcard:', randomCard)
+        let cardToShow: Card
+        let isBoss = false
 
-        useReviewStore.setState({ currentCard: randomCard })
+        // Check if boss card should appear
+        if (checkForBossCard() && !bossCardSession.isActive) {
+          const bossCards = await getCardsForBoss()
+          if (bossCards.length > 0) {
+            cardToShow = bossCards[Math.floor(Math.random() * bossCards.length)]
+            setBossCard(cardToShow)
+            setBossCardId(cardToShow.id)
+            isBoss = true
+          } else {
+            cardToShow = cardsRef.current[Math.floor(Math.random() * cardsRef.current.length)]
+          }
+        } else {
+          cardToShow = cardsRef.current[Math.floor(Math.random() * cardsRef.current.length)]
+        }
 
-        showFlashcard(randomCard)
+        console.log('Showing flashcard:', cardToShow, 'Boss:', isBoss)
+
+        useReviewStore.setState({ currentCard: cardToShow })
+
+        showFlashcard(cardToShow)
         pieceCountRef.current = 0
         nextThresholdRef.current = Math.floor(Math.random() * 9) + 3 // 3-11
       }
@@ -108,10 +156,13 @@ export default function TetrisGameComponent() {
       const linesCleared = this.lines - linesBefore
       if (linesCleared > 0) {
         clearLines(linesCleared)
+        soundManager.playLineClear()
       }
     }
 
     return () => {
+      // Save best score before ending game
+      updateBestScore(game.score)
       endGame()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,8 +171,7 @@ export default function TetrisGameComponent() {
   // Update refs when state changes
   useEffect(() => {
     cardsRef.current = availableCards
-    gameRef.current.flashcardVisible = flashcardVisible
-  }, [availableCards, flashcardVisible])
+  }, [availableCards])
 
   // Load cards from selected deck using FSRS
   const loadCards = async (forFun: boolean = false) => {
@@ -225,10 +275,25 @@ export default function TetrisGameComponent() {
   const handleFlashcardAnswer = async (correct: boolean) => {
     if (correct) {
       removeBottomLine()
+      incrementConsecutiveCorrect()
+      addNewCardToday()
+      soundManager.playSuccess()
     } else {
       addPenaltyLine()
+      resetConsecutiveCorrect()
+      soundManager.playError()
     }
+    
+    // Clear boss card session if it was a boss card
+    if (bossCardSession.isActive) {
+      clearBossCard()
+      setBossCard(null)
+    }
+    
     hideFlashcard()
+
+    // Update progression
+    await updateMemoryLevel()
 
     // Recharger les cartes pour exclure celles déjà révisées
     await loadCards(isForFun)
@@ -250,9 +315,19 @@ export default function TetrisGameComponent() {
       ? useDeckStore.getState().decks.find(d => d.id === selectedDeckId)?.name
       : 'Aucun deck'
 
+  // Get current level info
+  const currentLevel = MEMORY_LEVELS.find(l => l.id === userProgress.currentLevel) || MEMORY_LEVELS[0]
+  const nextLevel = MEMORY_LEVELS.find(l => l.requiredCards > userProgress.memorizedCards)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  
+  // Get current daily reward
+  const currentDailyReward = userProgress.dailyReward 
+    ? DAILY_REWARDS.find(r => r.id === userProgress.dailyReward)
+    : null
+
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
-      <div className="mb-4 flex items-center gap-4">
+      <div className="mb-4 flex items-center gap-4 flex-wrap">
         <button
           onClick={() => navigate('/play')}
           className="text-white hover:underline"
@@ -267,6 +342,19 @@ export default function TetrisGameComponent() {
             ⚠️ Aucune carte disponible !
           </span>
         )}
+        
+        {/* Progress info */}
+        <div className="flex items-center gap-2 text-sm">
+          <span>Jour {userProgress.currentStreak}</span>
+          <span>•</span>
+          <span>{currentLevel.icon} {currentLevel.name}</span>
+          {currentDailyReward && (
+            <>
+              <span>•</span>
+              <span>{currentDailyReward.icon} {currentDailyReward.name}</span>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-8">
@@ -301,16 +389,28 @@ export default function TetrisGameComponent() {
           <div className="bg-gray-800 p-4 rounded">
             <h2 className="text-xl font-bold mb-2">Score</h2>
             <p className="text-2xl">{game.score}</p>
-          </div>
-
-          <div className="bg-gray-800 p-4 rounded">
-            <h2 className="text-xl font-bold mb-2">Lignes</h2>
-            <p className="text-2xl">{game.lines}</p>
+            <p className="text-sm text-gray-400">Meilleur: {userProgress.bestScore}</p>
           </div>
 
           <div className="bg-gray-800 p-4 rounded">
             <h2 className="text-xl font-bold mb-2">Niveau</h2>
             <p className="text-2xl">{game.level}</p>
+          </div>
+
+          <div className="bg-gray-800 p-4 rounded">
+            <h2 className="text-lg font-bold mb-2">Progression</h2>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">{currentLevel.icon}</span>
+              <div>
+                <p className="text-sm font-medium">{currentLevel.name}</p>
+                <p className="text-xs text-gray-400">{userProgress.memorizedCards}/{currentLevel.requiredCards}</p>
+              </div>
+            </div>
+            {nextLevel && (
+              <p className="text-xs text-gray-400">
+                Prochain: {nextLevel.name} ({nextLevel.requiredCards} cartes)
+              </p>
+            )}
           </div>
 
           <div className="bg-gray-800 p-4 rounded">
@@ -338,6 +438,7 @@ export default function TetrisGameComponent() {
           <div className="bg-gray-800 p-4 rounded">
             <h2 className="text-xl font-bold mb-2">Cartes</h2>
             <p className="text-lg">{availableCards.length} disponibles</p>
+            <p className="text-sm text-gray-400">Combo: {userProgress.consecutiveCorrectAnswers}/7</p>
           </div>
 
           {game.gameOver && (
@@ -366,6 +467,7 @@ export default function TetrisGameComponent() {
         <FlashcardModal
           card={currentFlashcard}
           onAnswer={handleFlashcardAnswer}
+          isBossCard={bossCardSession.isActive && bossCardSession.cardId === currentFlashcard.id}
         />
       )}
 
@@ -379,6 +481,16 @@ export default function TetrisGameComponent() {
           onClose={() => navigate('/')}
         />
       )}
+
+      {/* Progression Notifications */}
+      {notifications.map(notification => (
+        <ProgressionNotification
+          key={notification.id}
+          type={notification.type}
+          value={notification.value}
+          onClose={() => removeNotification(notification.id)}
+        />
+      ))}
     </div>
   )
 }

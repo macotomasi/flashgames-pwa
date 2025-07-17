@@ -10,6 +10,7 @@ interface CardStore {
   getCard: (id: string) => Promise<Card | undefined>
   getCardsFromDeck: (deckId: string) => Promise<Card[]>
   searchCards: (query: string, deckId?: string) => Promise<Card[]>
+  getRandomCards: (deckId: string, count: number, excludeId?: string) => Promise<Card[]>
 }
 
 export const useCardStore = create<CardStore>(() => ({
@@ -84,6 +85,31 @@ export const useCardStore = create<CardStore>(() => ({
     )
     
     return filtered.map(card => ({
+      ...card,
+      createdAt: new Date(card.createdAt),
+      updatedAt: new Date(card.updatedAt),
+      lastReview: card.lastReview ? new Date(card.lastReview) : undefined,
+      nextReview: card.nextReview ? new Date(card.nextReview) : undefined
+    }))
+  },
+  
+  // Get random cards for multiple choice
+  getRandomCards: async (deckId, count, excludeId) => {
+    let cards = await db.cards
+      .where('deckId')
+      .equals(deckId)
+      .toArray()
+    
+    // Exclude the current card
+    if (excludeId) {
+      cards = cards.filter(c => c.id !== excludeId)
+    }
+    
+    // Shuffle and take count
+    const shuffled = cards.sort(() => Math.random() - 0.5)
+    const selected = shuffled.slice(0, Math.min(count, cards.length))
+    
+    return selected.map(card => ({
       ...card,
       createdAt: new Date(card.createdAt),
       updatedAt: new Date(card.updatedAt),
