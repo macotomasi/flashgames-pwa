@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useDeckStore } from '@/store'
+import { ReviewMode } from '@/types'
 
 interface UpToDateModalProps {
   onContinue: () => void
@@ -11,7 +12,7 @@ export default function UpToDateModal({ onContinue, onClose }: UpToDateModalProp
   const { setReviewMode } = useDeckStore()
 
   const handleReviewAllDecks = () => {
-    setReviewMode('all')
+    setReviewMode(ReviewMode.ALL_DECKS)
     onContinue()
   }
 

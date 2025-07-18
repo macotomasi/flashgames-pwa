@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { GameType } from '@/types'
+import { GameType, ReviewMode } from '@/types'
 import { useDeckStore } from '@/store'
 
 const games = [
@@ -47,10 +47,10 @@ export default function GameSelector() {
 
   const handleSelectDeck = (deckId: string | 'all') => {
     if (deckId === 'all') {
-      setReviewMode('all')
+      setReviewMode(ReviewMode.ALL_DECKS)
       selectDeck(null)
     } else {
-      setReviewMode('single', [deckId])
+      setReviewMode(ReviewMode.SINGLE_DECK, [deckId])
       selectDeck(deckId)
     }
     navigate(`/play/${selectedGame}`)
