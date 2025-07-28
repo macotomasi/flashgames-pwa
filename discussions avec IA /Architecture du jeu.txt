@@ -1,0 +1,583 @@
+# Architecture FlashGames PWA - Version Complète
+
+## 📁 Structure du Projet Adaptée
+
+```
+flashgames-pwa/
+├── public/
+│   ├── index.html
+│   └── sounds/                    # Sons kawaii et victoires
+│       ├── line-clear.mp3
+│       ├── correct-answer.mp3
+│       ├── level-up.mp3
+│       └── boss-warning.mp3
+│
+├── src/
+│   ├── core/
+│   │   ├── app.tsx
+│   │   ├── routes/
+│   │   └── layout/
+│   │
+│   ├── components/
+│   │   ├── flashcard/
+│   │   │   ├── FlashcardModal.tsx      # Modal avec "Je sais/Je ne sais pas"
+│   │   │   ├── MultipleChoice.tsx      # QCM après la première réponse
+│   │   │   ├── BossQuestion.tsx        # Questions difficiles
+│   │   │   └── FlashcardEditor.tsx     # Création/modification
+│   │   │
+│   │   ├── game/
+│   │   │   ├── GameFrame.tsx           # Container responsive
+│   │   │   ├── GameOverlay.tsx         # Flashcards par-dessus le jeu
+│   │   │   ├── ScoreBoard.tsx          # Score, statut, streak
+│   │   │   └── StatusAvatar.tsx        # Avatar évolutif
+│   │   │
+│   │   ├── progression/
+│   │   │   ├── MemoryStatus.tsx        # Ver → Einstein → GPT
+│   │   │   ├── DailyBadge.tsx          # Flash → Univers
+│   │   │   ├── StreakCounter.tsx       # Jours consécutifs
+│   │   │   └── AchievementModal.tsx    # Popups de félicitations
+│   │   │
+│   │   └── deck/
+│   │       ├── DeckManager.tsx         # Gestion des decks
+│   │       ├── DeckShare.tsx           # Export/import URL
+│   │       └── DeckSelector.tsx        # Choix du deck
+│   │
+│   ├── modules/
+│   │   ├── flashcards/
+│   │   │   ├── types.ts
+│   │   │   ├── flashcard.service.ts
+│   │   │   ├── deck.service.ts         # ← Nouveau
+│   │   │   └── fsrs/
+│   │   │       ├── fsrs-engine.ts
+│   │   │       ├── fsrs.worker.ts
+│   │   │       ├── fsrs-cache.ts
+│   │   │       └── boss-cards.ts       # ← Nouveau : logique cartes difficiles
+│   │   │
+│   │   ├── games/
+│   │   │   ├── GameModule.ts
+│   │   │   ├── game-flashcard.bridge.ts # ← Nouveau : intégration flashcards
+│   │   │   ├── index.ts
+│   │   │   └── implementations/
+│   │   │       └── tetris/
+│   │   │           ├── tetris-game.ts
+│   │   │           ├── tetris-logic.ts
+│   │   │           └── line-penalty.ts  # ← Nouveau : lignes de pénalité
+│   │   │
+│   │   ├── progression/                 # ← Nouveau module
+│   │   │   ├── memory-status.service.ts
+│   │   │   ├── daily-achievements.ts
+│   │   │   ├── streak-tracker.ts
+│   │   │   └── constants.ts            # Tous les niveaux/badges
+│   │   │
+│   │   └── sharing/                     # ← Nouveau module
+│   │       ├── deck-sharing.service.ts
+│   │       └── url-generator.ts
+│   │
+│   ├── services/
+│   │   ├── game-controller/            # ← Renommé : logique sans état
+│   │   │   ├── game-controller.ts      # Logique métier pure
+│   │   │   ├── flashcard-queue.ts      # File des flashcards
+│   │   │   └── penalty-manager.ts      # Gestion des pénalités
+│   │   │
+│   │   ├── sync/                       # ← Nouveau : synchronisation
+│   │   │   ├── user-progress.service.ts
+│   │   │   ├── sync-strategy.ts
+│   │   │   └── offline-queue.ts
+│   │   │
+│   │   ├── audio/                      # ← Nouveau service
+│   │   │   └── sound-effects.service.ts
+│   │   │
+│   │   └── [autres services existants...]
+│   │
+│   ├── hooks/
+│   │   ├── useFlashcardGame.ts        # ← Hook principal
+│   │   ├── useMemoryStatus.ts
+│   │   ├── useDailyProgress.ts
+│   │   └── useGamePenalties.ts
+│   │
+│   ├── store/
+│   │   ├── game.store.ts               # État du jeu en cours
+│   │   ├── flashcard.store.ts          # File et état des flashcards
+│   │   ├── progression.store.ts        # ← Nouveau : progression joueur
+│   │   └── index.ts
+│   │
+│   ├── tests/                          # ← Tests structurés
+│   │   ├── unit/
+│   │   │   ├── fsrs-engine.spec.ts
+│   │   │   ├── flashcard-queue.spec.ts
+│   │   │   └── memory-status.spec.ts
+│   │   ├── integration/
+│   │   │   ├── game-flashcard-flow.spec.ts
+│   │   │   └── progression-sync.spec.ts
+│   │   └── e2e/
+│   │       ├── user-plays-tetris.cy.ts
+│   │       └── deck-sharing.cy.ts
+│   │
+│   ├── config/                         # ← Configuration centralisée
+│   │   ├── app.config.ts               # Config globale
+│   │   ├── env.ts
+│   │   └── schema-validators.ts        # Validation des decks
+│   │
+│   └── constants/                      # ← Déprécié : tout dans config
+│       └── [migré vers config/]
+```
+
+## 🏗️ Architecture Corrigée
+
+### 1. **État Centralisé avec Zustand (Seule Source de Vérité)**
+
+```typescript
+// store/game.store.ts
+interface GameStore {
+  // État observable
+  activeGame: GameType | null
+  currentFlashcard: FlashcardState | null
+  score: number
+  bestScore: number
+  
+  // Actions
+  showFlashcard: (card: Flashcard) => void
+  handleAnswer: (answer: string) => void
+  addPenalty: () => void
+}
+
+export const useGameStore = create<GameStore>((set, get) => ({
+  // État initial
+  activeGame: null,
+  currentFlashcard: null,
+  score: 0,
+  bestScore: 0,
+  
+  // Actions qui modifient l'état
+  showFlashcard: (card) => set({ 
+    currentFlashcard: {
+      card,
+      startTime: Date.now(),
+      mode: 'initial'
+    }
+  }),
+  
+  handleAnswer: async (answer) => {
+    const state = get()
+    const correct = answer === state.currentFlashcard?.card.answer
+    
+    // Déléguer la logique métier au controller
+    const result = await gameController.processAnswer(
+      state.currentFlashcard,
+      answer,
+      state.userChoice
+    )
+    
+    set({
+      score: state.score + result.points,
+      currentFlashcard: null
+    })
+  }
+}))
+
+// services/game-controller/game-controller.ts
+class GameController {
+  // Pas d'état ! Seulement de la logique métier
+  async processAnswer(
+    flashcard: FlashcardState,
+    answer: string,
+    userChoice: 'know' | 'dontknow'
+  ): Promise<AnswerResult> {
+    const correct = answer === flashcard.card.answer
+    const shouldPenalize = !correct || userChoice === 'dontknow'
+    
+    // Effets de bord
+    if (shouldPenalize) {
+      await this.penaltyManager.addPenalty()
+    }
+    
+    // Mise à jour FSRS
+    const grade = this.calculateGrade(correct, userChoice)
+    await this.fsrsEngine.updateCard(flashcard.card.id, grade)
+    
+    return {
+      correct,
+      points: correct && userChoice === 'know' ? 10 : 0,
+      penalty: shouldPenalize
+    }
+  }
+}
+```
+
+### 2. **Système d'Événements pour le Bridge**
+
+```typescript
+// modules/games/game-event-system.ts
+type GameEventMap = {
+  pieceSpawned: { pieceType: string; position: number }
+  lineClear: { lines: number }
+  gameOver: { score: number }
+  pieceLanded: { position: number }
+}
+
+class GameEventEmitter extends EventTarget {
+  emit<K extends keyof GameEventMap>(
+    event: K, 
+    detail: GameEventMap[K]
+  ): void {
+    this.dispatchEvent(new CustomEvent(event, { detail }))
+  }
+  
+  on<K extends keyof GameEventMap>(
+    event: K,
+    callback: (detail: GameEventMap[K]) => void
+  ): void {
+    this.addEventListener(event, (e: CustomEvent) => {
+      callback(e.detail)
+    })
+  }
+}
+
+// modules/games/flashcard-game-bridge.ts
+class FlashcardGameBridge {
+  private pieceCount = 0
+  private nextThreshold = this.randomThreshold()
+  
+  constructor(
+    private gameEvents: GameEventEmitter,
+    private flashcardQueue: FlashcardQueueService
+  ) {
+    this.setupEventListeners()
+  }
+  
+  private setupEventListeners(): void {
+    this.gameEvents.on('pieceSpawned', () => {
+      this.pieceCount++
+      
+      if (this.pieceCount >= this.nextThreshold) {
+        this.triggerFlashcard()
+        this.pieceCount = 0
+        this.nextThreshold = this.randomThreshold()
+      }
+    })
+  }
+  
+  private randomThreshold(): number {
+    return Math.floor(Math.random() * 9) + 3 // 3-11
+  }
+}
+```
+
+### 3. **Service de Synchronisation Cloud**
+
+```typescript
+// services/sync/user-progress.service.ts
+interface SyncStrategy {
+  onUnlock: boolean
+  onExit: boolean
+  periodic: number // minutes
+  manual: boolean
+}
+
+class UserProgressService {
+  private syncQueue: SyncOperation[] = []
+  private lastSync: number = 0
+  
+  async syncProgress(userId: string): Promise<void> {
+    const snapshot = await this.createSnapshot(userId)
+    
+    try {
+      await api.syncUserProgress(userId, snapshot)
+      this.lastSync = Date.now()
+      await this.clearSyncQueue()
+    } catch (error) {
+      // Queue pour retry
+      this.queueForSync(snapshot)
+      throw error
+    }
+  }
+  
+  async restoreProgress(userId: string): Promise<ProgressSnapshot> {
+    // Tenter le cloud d'abord
+    try {
+      const cloudSnapshot = await api.getUserProgress(userId)
+      await this.mergeWithLocal(cloudSnapshot)
+      return cloudSnapshot
+    } catch {
+      // Fallback local
+      return this.getLocalSnapshot(userId)
+    }
+  }
+  
+  private async createSnapshot(userId: string): Promise<ProgressSnapshot> {
+    return {
+      fsrsState: await this.fsrsEngine.exportState(userId),
+      memoryLevel: await this.memoryStatus.getLevel(userId),
+      dailyBadges: await this.dailyProgress.getBadges(userId),
+      decks: await this.deckService.getUserDecks(userId),
+      stats: await this.statsService.getStats(userId),
+      timestamp: Date.now()
+    }
+  }
+  
+  setupAutoSync(strategy: SyncStrategy): void {
+    if (strategy.onUnlock) {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.syncProgress()
+      })
+    }
+    
+    if (strategy.onExit) {
+      window.addEventListener('beforeunload', () => {
+        this.syncProgress() // Best effort
+      })
+    }
+    
+    if (strategy.periodic > 0) {
+      setInterval(() => this.syncProgress(), strategy.periodic * 60 * 1000)
+    }
+  }
+}
+```
+
+### 4. **Validation et Sécurité des Decks**
+
+```typescript
+// config/schema-validators.ts
+import { z } from 'zod'
+
+export const FlashcardSchema = z.object({
+  question: z.string().min(1).max(500),
+  answer: z.string().min(1).max(500),
+  tags: z.array(z.string()).optional()
+})
+
+export const DeckSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  cards: z.array(FlashcardSchema).min(1).max(1000),
+  public: z.boolean().default(false),
+  ownerId: z.string().uuid(),
+  version: z.number().default(1),
+  createdAt: z.number(),
+  updatedAt: z.number()
+})
+
+// modules/sharing/deck-validator.service.ts
+class DeckValidatorService {
+  private readonly bannedPatterns = [
+    /<script/i,
+    /javascript:/i,
+    /on\w+\s*=/i // onclick, onload, etc.
+  ]
+  
+  async validateDeck(deck: unknown): Promise<ValidatedDeck> {
+    // Validation de structure
+    const parsed = DeckSchema.parse(deck)
+    
+    // Validation de contenu
+    this.validateContent(parsed)
+    
+    // Sanitization
+    return this.sanitizeDeck(parsed)
+  }
+  
+  private validateContent(deck: Deck): void {
+    const allText = [
+      deck.name,
+      deck.description,
+      ...deck.cards.flatMap(c => [c.question, c.answer])
+    ].join(' ')
+    
+    for (const pattern of this.bannedPatterns) {
+      if (pattern.test(allText)) {
+        throw new ValidationError('Contenu non autorisé détecté')
+      }
+    }
+  }
+  
+  private sanitizeDeck(deck: Deck): ValidatedDeck {
+    return {
+      ...deck,
+      name: DOMPurify.sanitize(deck.name),
+      description: DOMPurify.sanitize(deck.description || ''),
+      cards: deck.cards.map(card => ({
+        ...card,
+        question: DOMPurify.sanitize(card.question),
+        answer: DOMPurify.sanitize(card.answer)
+      }))
+    }
+  }
+}
+
+// Partage avec tokens temporaires
+class DeckSharingService {
+  async createShareLink(
+    deckId: string, 
+    options: ShareOptions = {}
+  ): Promise<ShareLink> {
+    const shareToken = nanoid(16)
+    const expiresAt = options.expiresIn 
+      ? Date.now() + options.expiresIn 
+      : null
+    
+    await api.createShareToken({
+      deckId,
+      shareToken,
+      expiresAt,
+      maxUses: options.maxUses
+    })
+    
+    return {
+      url: `${window.location.origin}/deck/${shareToken}`,
+      expiresAt,
+      token: shareToken
+    }
+  }
+}
+```
+
+### 5. **Configuration Centralisée**
+
+```typescript
+// config/app.config.ts
+export const APP_CONFIG = {
+  flashcards: {
+    triggers: {
+      minPiecesBetweenCards: 3,
+      maxPiecesBetweenCards: 11,
+      bossCardThreshold: 7,
+      timeoutMs: 30000
+    },
+    fsrs: {
+      defaultInterval: 1,
+      easyBonus: 1.3,
+      hardFactor: 0.8
+    }
+  },
+  
+  scoring: {
+    points: {
+      perLine: 10,
+      perCorrectAnswer: 10,
+      combo: {
+        multiplier: 1.5,
+        threshold: 5
+      }
+    },
+    penalties: {
+      wrongAnswer: 'addLine',
+      timeout: 'addLine',
+      dontKnow: 'addLine'
+    }
+  },
+  
+  progression: {
+    levels: [
+      { id: 'worm', name: 'Ver de terre', icon: '🪱', cards: 5, days: 3 },
+      { id: 'ant', name: 'Fourmi', icon: '🐜', cards: 10, days: 3 },
+      // ... tous les niveaux
+      { id: 'gpt', name: 'ChatGPT', icon: '🤖', cards: 1000, days: 3 }
+    ],
+    dailyBadges: [
+      { id: 'flash', name: 'Flash', icon: '📸', newCards: 5 },
+      { id: 'lightning', name: 'Éclair', icon: '⚡', newCards: 10 },
+      // ... tous les badges
+      { id: 'universe', name: 'Univers', icon: '🌌', newCards: 40 }
+    ]
+  },
+  
+  sounds: {
+    effects: {
+      lineComplete: { file: '/sounds/line-clear.mp3', volume: 0.7 },
+      correctAnswer: { file: '/sounds/correct.mp3', volume: 0.8 },
+      wrongAnswer: { file: '/sounds/wrong.mp3', volume: 0.6 },
+      levelUp: { file: '/sounds/level-up.mp3', volume: 1.0 },
+      bossWarning: { file: '/sounds/boss.mp3', volume: 0.9 }
+    },
+    music: {
+      enabled: true,
+      volume: 0.5
+    }
+  },
+  
+  sync: {
+    strategy: {
+      onUnlock: true,
+      onExit: true,
+      periodic: 5, // minutes
+      manual: true
+    },
+    retryPolicy: {
+      maxRetries: 3,
+      backoff: 'exponential'
+    }
+  },
+  
+  sharing: {
+    maxDeckSize: 1000,
+    requiresPurchase: true,
+    tokenExpiry: 7 * 24 * 60 * 60 * 1000 // 7 jours
+  }
+}
+```
+
+### 6. **Tests Structurés**
+
+```typescript
+// tests/unit/fsrs-engine.spec.ts
+import { describe, it, expect } from 'vitest'
+import { FSRSEngine } from '@/modules/flashcards/fsrs/fsrs-engine'
+
+describe('FSRSEngine', () => {
+  it('should calculate next review correctly', () => {
+    const engine = new FSRSEngine()
+    const card = { stability: 2.5, difficulty: 0.3 }
+    const result = engine.calculateNextReview(card, 'good')
+    
+    expect(result.interval).toBeGreaterThan(2)
+    expect(result.nextReview).toBeInstanceOf(Date)
+  })
+  
+  it('should handle boss cards properly', () => {
+    const engine = new FSRSEngine()
+    const difficultCard = { failureCount: 10 }
+    
+    expect(engine.isBossCard(difficultCard)).toBe(true)
+  })
+})
+
+// tests/integration/game-flashcard-flow.spec.ts
+import { renderHook, act } from '@testing-library/react'
+import { useFlashcardGame } from '@/hooks/useFlashcardGame'
+
+describe('Game-Flashcard Integration', () => {
+  it('should trigger flashcard after threshold pieces', async () => {
+    const { result } = renderHook(() => useFlashcardGame('tetris'))
+    
+    // Simuler plusieurs pièces
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        result.current.gameEvents.emit('pieceSpawned', {})
+      })
+    }
+    
+    expect(result.current.currentFlashcard).toBeTruthy()
+  })
+})
+
+// tests/e2e/user-plays-tetris.cy.ts
+describe('User plays Tetris with flashcards', () => {
+  it('should show flashcard and apply penalty on wrong answer', () => {
+    cy.visit('/game/tetris')
+    cy.get('[data-testid="start-game"]').click()
+    
+    // Attendre la première flashcard
+    cy.get('[data-testid="flashcard-modal"]', { timeout: 30000 })
+      .should('be.visible')
+    
+    // Répondre "Je sais" puis se tromper
+    cy.get('[data-testid="i-know"]').click()
+    cy.get('[data-testid="wrong-answer"]').click()
+    
+    // Vérifier la pénalité
+    cy.get('[data-testid="game-board"]')
+      .should('have.attr', 'data-penalty-lines', '1')
+  })
+})
+```

@@ -1,0 +1,18 @@
+FLASHGAMES - PROGRESSION
+
+[X] package.json
+[X] tsconfig.json
+[X] vite.config.ts
+[X] structure dossiers
+[X] index.html
+[X] main.tsx
+[X] App.tsx
+[ ] tetris-game.ts partie 1
+[ ] tetris-game.ts partie 2
+[ ] tetris-game.ts partie 3
+[ ] GameBoard.tsx
+[ ] fsrs-engine.ts
+...
+
+DERNIÈRE ÉTAPE: App.tsx créé et testé
+PROCHAINE ÉTAPE: tetris-game.ts partie 1

@@ -1,0 +1,243 @@
+Excellents conseils ! Je vais intégrer ces améliorations dans notre stratégie :
+
+## 🎯 Stratégie de Développement Améliorée
+
+### 📊 **Document de Suivi des Fonctionnalités**
+
+```markdown
+# 📋 features-tracking.md
+
+## Core Gameplay
+| Feature | Description | Implémenté | Testé | Notes |
+|---------|-------------|------------|-------|-------|
+| Tetris de base | Jeu fonctionnel | ❌ | ❌ | |
+| Flashcard toutes 3-11 pièces | Déclenchement aléatoire | ❌ | ❌ | |
+| Flow "Je sais/Je ne sais pas" | 2 étapes de réponse | ❌ | ❌ | |
+| QCM après choix initial | 4 choix possibles | ❌ | ❌ | |
+| Jeu continue pendant question | Pas de pause | ❌ | ❌ | |
+| Ligne de pénalité | Si mauvaise réponse | ❌ | ❌ | |
+| Timeout = mauvaise réponse | 30s max | ❌ | ❌ | |
+
+## Progression & Gamification
+| Feature | Description | Implémenté | Testé | Notes |
+|---------|-------------|------------|-------|-------|
+| 20 niveaux de mémoire | Ver → ChatGPT | ❌ | ❌ | |
+| Badges quotidiens | Flash → Univers | ❌ | ❌ | |
+| Jours consécutifs | Streak counter | ❌ | ❌ | |
+| Cartes boss après 7 succès | Fond rouge | ❌ | ❌ | |
+| Sons kawaii victoire | line-clear.mp3 | ❌ | ❌ | |
+| Son level up | level-up.mp3 | ❌ | ❌ | |
+
+## FSRS & Mémoire
+| Feature | Description | Implémenté | Testé | Notes |
+|---------|-------------|------------|-------|-------|
+| Algorithme FSRS | Spacing distribution | ❌ | ❌ | |
+| Persistance entre sessions | LocalStorage/IndexedDB | ❌ | ❌ | |
+| "Mémoire à jour" | Toutes cartes learned | ❌ | ❌ | |
+| Import decks Anki | Compatibilité | ❌ | ❌ | |
+
+## UI/UX
+| Feature | Description | Implémenté | Testé | Notes |
+|---------|-------------|------------|-------|-------|
+| 100% Responsive | Pas de scroll | ❌ | ❌ | |
+| Meilleur score affiché | En haut à droite | ❌ | ❌ | |
+| Cartes à réviser aujourd'hui | Compteur | ❌ | ❌ | |
+| Éditeur de flashcards | CRUD complet | ❌ | ❌ | |
+| Gestion des decks | Création/organisation | ❌ | ❌ | |
+
+## Partage & Social
+| Feature | Description | Implémenté | Testé | Notes |
+|---------|-------------|------------|-------|-------|
+| URLs partageables | flash.games/deck/abc123 | ❌ | ❌ | |
+| Validation XSS | Sanitization | ❌ | ❌ | |
+| Limite contenu | 1000 cartes max | ❌ | ❌ | |
+```
+
+### 📝 **Phases avec Stabilisation**
+
+**Phase 1 : Core MVP**
+```
+1.1 Setup initial
+1.2 Tetris basique
+1.3 FSRS engine minimal
+1.4 Une flashcard simple
+
+🔧 Phase 1.5 : Stabilisation
+- Tests manuels complets
+- Console.logs de debug
+- README avec instructions
+- Fix des bugs critiques
+- Documentation basique
+```
+
+**Phase 2 : Intégration**
+```
+2.1 Système d'événements
+2.2 Logique 3-11 pièces
+2.3 Flow complet flashcard
+2.4 Pénalités
+
+🔧 Phase 2.5 : Tests & Debug
+- Tests unitaires FSRS
+- Tests unitaires Tetris
+- Tests intégration flow
+- Refactoring si nécessaire
+```
+
+**Phase 3 : Gamification**
+```
+3.1 Niveaux de mémoire
+3.2 Badges quotidiens
+3.3 Sons et feedbacks
+3.4 Persistance
+
+🔧 Phase 3.5 : Polish
+- Tests E2E complets
+- Optimisation performances
+- Tests sur mobile
+- Accessibility check
+```
+
+**Phase 4 : Features Avancées**
+```
+4.1 Sécurité des decks
+- Validation JSON stricte
+- Sanitization HTML
+- Rate limiting
+- Tests de sécurité
+
+4.2 Cartes boss
+4.3 Partage social
+4.4 Autres jeux
+
+🔧 Phase 4.5 : Production Ready
+- Audit sécurité complet
+- Tests de charge
+- Documentation finale
+- CI/CD setup
+```
+
+### 📄 **dev-tasks.md**
+
+```markdown
+# 🧠 Tâches de Développement
+
+## En cours 🚧
+- [ ] Setup initial du projet
+  - [x] package.json
+  - [ ] tsconfig.json
+  - [ ] vite.config.ts
+  - [ ] Structure dossiers
+
+## À faire 📋
+
+### Phase 1 - Core MVP
+- [ ] src/modules/games/tetris/tetris-game.ts (1/3)
+- [ ] src/modules/games/tetris/tetris-game.ts (2/3)
+- [ ] src/modules/games/tetris/tetris-game.ts (3/3)
+- [ ] src/modules/flashcards/fsrs/fsrs-engine.ts
+- [ ] src/components/FlashcardModal.tsx
+
+### Phase 1.5 - Stabilisation
+- [ ] Tests manuels Tetris
+- [ ] Test flashcard apparition
+- [ ] README.md initial
+- [ ] Fix: [liste des bugs trouvés]
+
+### Phase 2 - Intégration
+- [ ] src/modules/games/game-event-system.ts
+- [ ] src/modules/games/flashcard-bridge.ts
+- [ ] src/hooks/useFlashcardGame.ts
+
+## Bugs à corriger 🐛
+- [ ] Bug: Description du problème
+
+## Questions pour l'IA 🤖
+- [ ] Comment optimiser la performance du Tetris sur mobile ?
+- [ ] Meilleure approche pour les Web Workers avec Vite ?
+
+## Notes de développement 📝
+- Utiliser `console.time()` pour profiler les performances
+- Tester sur iPhone SE pour le responsive minimum
+```
+
+### 🔐 **Checklist Sécurité Phase 4.1**
+
+```typescript
+// src/security/deck-validator.ts
+export const DECK_SECURITY_RULES = {
+  // Validation structure
+  maxDeckSize: 1000,
+  maxCardLength: 1000,
+  maxTitleLength: 100,
+  
+  // Patterns interdits
+  bannedPatterns: [
+    /<script/i,
+    /javascript:/i,
+    /on\w+=/i,
+    /<iframe/i,
+    /<object/i,
+    /<embed/i,
+    /eval\(/i,
+    /expression\(/i
+  ],
+  
+  // Tags HTML autorisés
+  allowedTags: ['b', 'i', 'u', 'br', 'strong', 'em'],
+  
+  // Validation supplémentaire
+  requireAuth: true,
+  rateLimit: '10 decks per hour',
+  moderationQueue: true
+}
+```
+
+### 🧪 **Template de Tests dès Phase 2**
+
+```typescript
+// tests/unit/fsrs-engine.spec.ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { FSRSEngine } from '@/modules/flashcards/fsrs/fsrs-engine'
+
+describe('FSRSEngine', () => {
+  let engine: FSRSEngine
+  
+  beforeEach(() => {
+    engine = new FSRSEngine()
+  })
+  
+  describe('calculateNextReview', () => {
+    it('should increase interval on correct answer', () => {
+      // TODO: Implémenter
+    })
+    
+    it('should reset interval on wrong answer', () => {
+      // TODO: Implémenter
+    })
+  })
+  
+  describe('Boss Cards', () => {
+    it('should identify cards with 5+ failures as boss cards', () => {
+      // TODO: Implémenter
+    })
+  })
+})
+```
+
+### 💡 **Workflow Amélioré**
+
+1. **Avant chaque phase** : Review features-tracking.md
+2. **Pendant le dev** : Update dev-tasks.md en temps réel
+3. **Après chaque fichier** : Test manuel immédiat
+4. **Fin de phase** : Stabilisation obligatoire
+5. **Avant phase suivante** : Validation complète
+
+Cette approche nous garantit :
+- ✅ Pas d'accumulation de bugs
+- ✅ Documentation à jour
+- ✅ Tests précoces
+- ✅ Sécurité intégrée
+- ✅ Traçabilité complète
+
+Prêt à commencer avec le setup initial ? 🚀

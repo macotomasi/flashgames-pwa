@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-900 text-white;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-game-primary hover:bg-game-secondary text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-bold py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6;
+  }
+}
+
+@layer utilities {
+  .text-neon-cyan {
+    color: #00fff7;
+    text-shadow: 0 0 8px #00fff7, 0 0 2px #fff;
+  }
+  .text-neon-pink {
+    color: #ff00c8;
+    text-shadow: 0 0 8px #ff00c8, 0 0 2px #fff;
+  }
+  .border-neon-cyan {
+    border-color: #00fff7;
+    box-shadow: 0 0 8px #00fff7;
+  }
+  .border-neon-pink {
+    border-color: #ff00c8;
+    box-shadow: 0 0 8px #ff00c8;
+  }
+  .shadow-neon {
+    box-shadow: 0 0 16px #00fff7, 0 0 32px #ff00c8;
+  }
+}
+
+body {
+  background: linear-gradient(135deg, #0a0a23 0%, #1a1a40 100%) !important;
+  color: #fff;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
